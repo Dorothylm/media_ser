@@ -1,0 +1,291 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <assert.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <mysql/mysql.h>
+#include "message.h"
+
+select table_name from information_schema.tables where table_schema='当前数据库'’；
+select column_name from information_schema.columns where table_schema='csdb' and table_name='users'；//字段名 vedio_path vedio_name;
+
+MYSQL *mysql_connect();
+int login_user(MYSQL *pconn, stNetMsg *netMsg);
+int register_user_pwd(MYSQL *pconn, stNetMsg *netMsg);
+int register_user(MYSQL *pconn, stNetMsg *netMsg);
+
+
+void *fun(void *arg)
+{
+        int reg = 0;
+        int log = 0;
+	//socket link
+	int c = (int)arg;
+
+	//mysql link
+	MYSQL *pconn = mysql_connect();
+        stNetMsg netMsg;
+
+	while(1)
+	{
+//		stNetMsg netMsg;    
+		memset(&netMsg, 0, sizeof(netMsg));
+
+		int n = recv(c, (char *)&netMsg, sizeof(netMsg), 0);
+		if(n <= 0)
+		{
+			break;
+		}
+
+		netMsg = (stNetMsg)netMsg;
+		printf("%d, %s, %s\n", netMsg.msgType, netMsg.unMsgBody.stRegisterMsg.name, netMsg.unMsgBody.stRegisterMsg.pwd); 
+
+		switch(netMsg.msgType)
+		{
+		case EN_MSG_LOGIN: 
+
+                        printf("%d  LOGIN\n", netMsg.msgType);           
+			//login
+                        log = login_user(pconn, &netMsg);
+
+			if(log == 1)
+			{
+                            printf("%d  LOGIN_SUCESS\n", netMsg.msgType);           
+			    netMsg.msgType = EN_MSG_LOGIN_SUCCESS;
+			    send(c, (char*)&netMsg, sizeof(netMsg), 0);
+			}
+			else if(log == -1)
+			{
+                            printf("%d  LOGIN_FAIL\n", netMsg.msgType);           
+			    netMsg.msgType = EN_MSG_LOGIN_FAIL;
+			    send(c, (char*)&netMsg, sizeof(netMsg), 0);
+			}
+               
+			break;
+		case EN_MSG_REGISTER:
+
+			//register
+                        reg = register_user(pconn, &netMsg);
+
+			if(reg == 1)
+			{
+			    netMsg.msgType = EN_MSG_REGISTER_SUCCESS;
+			    send(c, (char*)&netMsg, sizeof(netMsg), 0);
+			}
+			else if(reg == -1)
+			{
+			    netMsg.msgType = EN_MSG_REGISTER_FAIL;
+			    send(c, (char*)&netMsg, sizeof(netMsg), 0);
+			}
+			break;
+		case EN_MSG_LOGIN_SUCCESS:
+                        //todo
+                        //list resourse
+			break;
+		case EN_MSG_LOGIN_FAIL:
+			break;
+		case EN_MSG_REGISTER_SUCCESS:
+			break;
+		case EN_MSG_REGISTER_FAIL:
+			break;
+		default:
+			break;
+		}
+          }
+		printf("one client over");
+		close(c);
+		pthread_exit(NULL);
+}
+
+MYSQL *mysql_connect()
+{
+	MYSQL *pconn = NULL;
+
+	pconn = mysql_init(NULL);
+
+	if(pconn == NULL)
+	{
+		printf("mysql_init failed\n");
+	}
+
+	else { printf("%s\n", "init success"); }
+
+	pconn = mysql_real_connect(pconn, "127.0.0.1", "root", "111111", "stream_media_user", 0, NULL, 0);
+
+	if(pconn == NULL)
+	{
+		printf("Failed to connect to Mysql!\n");
+	}
+
+	else
+	{
+		printf("Connected to Mysql successfully!\n");
+	}
+
+        return pconn;
+}
+
+//login_name_pwd
+int login_user(MYSQL *pconn, stNetMsg *netMsg)
+{
+	MYSQL_RES *pre = NULL;
+	MYSQL_ROW row = 0;
+
+	char query_name[1024];
+	int t;
+
+	printf("%s\n", "choice stream_media_user!");
+
+	strcpy(query_name, "select * from user_information where name = '");
+	strcat(query_name, netMsg->unMsgBody.stLoginMsg.name);
+	strcat(query_name, "' and pwd = '");
+	strcat(query_name, netMsg->unMsgBody.stLoginMsg.pwd);
+	strcat(query_name, "';");
+	printf("%s\n", query_name);
+
+	t = mysql_real_query(pconn, query_name, strlen(query_name));
+        printf("t = %d\n", t);
+ 
+        pre = mysql_store_result(pconn);
+	if(pre && mysql_num_rows(pre) != 0)
+	{
+        	printf("Login Success!\n");
+		return 1;
+	}
+	else
+	{
+		printf("Login fail!\n");
+		return -1;
+	}
+}
+
+//insert
+int register_user_pwd(MYSQL *pconn, stNetMsg *netMsg)
+{
+	MYSQL_RES *pre = NULL;
+	MYSQL_ROW row = 0;
+
+	char query[128];
+	int t;
+
+	if(mysql_select_db(pconn, "stream_media_user"))
+	{
+		return -1;
+	}
+	printf("%s\n", "choice stream_media_user!");
+
+	strcpy(query, "insert into user_information values('"); 
+        strcat(query, netMsg->unMsgBody.stRegisterMsg.name);
+        strcat(query,"', '");
+        strcat(query, netMsg->unMsgBody.stRegisterMsg.pwd);
+        strcat(query, "');");
+	printf("%s\n", query);
+
+	if(!mysql_real_query(pconn, query, strlen(query)))
+	{
+		printf("sucess register\n");
+		return 1;
+	}
+	else
+	{
+		printf("fail register/n");
+		return -1;
+	}	
+}
+
+int register_user(MYSQL *pconn, stNetMsg *netMsg)
+{
+	MYSQL_RES *pre = NULL;
+	MYSQL_ROW row = 0;
+
+	char query_name[128];
+	int t;
+        int can_register;
+
+	if(mysql_select_db(pconn, "stream_media_user"))
+	{
+		return -1;
+	}
+	printf("%s\n", "choice stream_media_user!");
+
+	strcpy(query_name, "select name from user_information where name = '");
+	strcat(query_name, netMsg->unMsgBody.stRegisterMsg.name);
+	strcat(query_name, "';");
+	printf("%s\n", query_name);
+
+	t = mysql_real_query(pconn, query_name, strlen(query_name));
+        printf("t = %d \n", t);
+
+	pre = mysql_store_result(pconn);
+	if(pre && mysql_num_rows(pre) != 0)
+	{
+		printf("user_name_exist, fall_register\n");
+		return -1;
+	}
+	else
+	{
+		printf("user_name_no, can register\n");
+
+		can_register = register_user_pwd(pconn, netMsg);
+		if(can_register == 1)
+		{
+                        
+	        	printf("register success!\n");
+			return 1;
+		}
+		else
+		{
+                        
+		        printf("register fall;\n");
+			return -1;
+		}
+	} 
+}
+
+//bool delete_name(char *name);
+
+int main()
+{
+        pthread_t id;
+	stNetMsg netMsg;    
+	memset(&netMsg, 0, sizeof(netMsg));
+
+	int listenfd = socket(AF_INET, SOCK_STREAM, 0);
+	assert(listenfd != -1);
+
+	struct sockaddr_in server, client;
+	server.sin_family = AF_INET;
+	server.sin_port = htons(6500);
+	server.sin_addr.s_addr = inet_addr("192.168.1.120");
+
+	int res = bind(listenfd, (struct sockaddr *)&server, sizeof(server));
+	assert(res != -1);
+
+	listen(listenfd, 5);
+
+	while(1)
+	{
+		int len = sizeof(client);
+		int clientfd = accept(listenfd, (struct sockaddr *)&client, &len);
+
+		if(clientfd < 0)
+		{
+			perror("accept error");
+			continue;
+		}
+
+		printf("port = %d, c = %d\n", ntohs(client.sin_port), clientfd);
+
+		if(pthread_create(&id, NULL, fun, (void *)clientfd))
+		{
+			perror("pthread_creat error");
+			exit(0);
+		}
+	}
+	close(listenfd);
+}
+
