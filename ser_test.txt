@@ -10,6 +10,10 @@
 #include <mysql/mysql.h>
 #include "message.h"
 
+lalalalalal
+
+bsbsbsbsbsb
+
 select table_name from information_schema.tables where table_schema='当前数据库'’；
 select column_name from information_schema.columns where table_schema='csdb' and table_name='users'；//字段名 vedio_path vedio_name;
 
